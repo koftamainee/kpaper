@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">kpaper</string>
+    <string name="wallpaper_label">kpaper</string>
+    <string name="wallpaper_description">Видео-обои: каждое появление экрана запускает видео с начала</string>
+    <string name="pick_video">Выбрать видео</string>
+    <string name="status_none">Видео не выбрано</string>
+    <string name="status_selected">Выбрано: %1$s</string>
+    <string name="cant_open_chooser">Не удалось открыть выбор обоев, установите kpaper вручную в настройках</string>
+</resources>
