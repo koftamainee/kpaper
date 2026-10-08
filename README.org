@@ -1,0 +1,14 @@
+#+title: KPaper
+#+author: koftamainee
+
+* Why
+Every live wallpaper app i tried either do not include option to restart video
+when phone is unlocked or it provide this feature, but first frame is rendered
+from a previous position in a video, then resets.... this completly ruins the
+idea
+* How
+I don't recreate gl's context, just pause and resume, this is remove first frame
+bug, but can use slightly more energy in the background
+
+also, here is the miku
+[[./assets/wp.jpg]]
