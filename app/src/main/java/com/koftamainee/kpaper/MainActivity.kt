@@ -8,18 +8,54 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
 
     private lateinit var status: TextView
+    private lateinit var parallax: CheckBox
+    private lateinit var tiltBar: SeekBar
+    private lateinit var tiltValue: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         status = findViewById(R.id.status)
+        parallax = findViewById(R.id.parallax)
+        tiltBar = findViewById(R.id.tilt)
+        tiltValue = findViewById(R.id.tilt_value)
         findViewById<Button>(R.id.pick).setOnClickListener { pickVideo() }
+
+        parallax.isChecked = prefs().getBoolean("parallax", true)
+        tiltBar.progress = prefs().getInt("tilt_percent", 100)
+        tiltBar.isEnabled = parallax.isChecked
+        tiltValue.isEnabled = parallax.isChecked
+        updateTiltLabel()
+
+        parallax.setOnCheckedChangeListener { _, checked ->
+            prefs().edit().putBoolean("parallax", checked).apply()
+            tiltBar.isEnabled = checked
+            tiltValue.isEnabled = checked
+        }
+        tiltBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                prefs().edit().putInt("tilt_percent", progress).apply()
+                updateTiltLabel()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+            }
+        })
+    }
+
+    private fun updateTiltLabel() {
+        tiltValue.text = getString(R.string.tilt_value_fmt, tiltBar.progress)
     }
 
     override fun onResume() {

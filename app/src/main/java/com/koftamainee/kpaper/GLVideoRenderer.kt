@@ -19,6 +19,7 @@ import android.view.SurfaceHolder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
+import kotlin.math.abs
 
 class GLVideoRenderer(
     private val context: Context,
@@ -163,6 +164,26 @@ class GLVideoRenderer(
         handler?.post { applyVisibility() }
     }
 
+    fun setTiltConfig(enabled: Boolean, percent: Int) {
+        val changed = tiltEnabled != enabled || tiltPercent != percent
+        tiltEnabled = enabled
+        tiltPercent = percent
+        if (!enabled && (tiltX != 0f || tiltY != 0f)) {
+            tiltX = 0f
+            tiltY = 0f
+            handler?.post { drawFrame() }
+        } else if (changed) {
+            handler?.post { drawFrame() }
+        }
+    }
+
+    fun setTilt(x: Float, y: Float) {
+        if (abs(x - tiltX) < 0.0005f && abs(y - tiltY) < 0.0005f) return
+        tiltX = x
+        tiltY = y
+        handler?.post { drawFrame() }
+    }
+
     fun setViewport(w: Int, h: Int) {
         viewportW = w
         viewportH = h
@@ -276,6 +297,7 @@ class GLVideoRenderer(
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         texCoordHandle = GLES20.glGetAttribLocation(program, "aTexCoord")
         scaleHandle = GLES20.glGetUniformLocation(program, "uScale")
+        offsetHandle = GLES20.glGetUniformLocation(program, "uOffset")
         stMatrixHandle = GLES20.glGetUniformLocation(program, "uSTMatrix")
 
         val textures = IntArray(1)
@@ -325,15 +347,23 @@ class GLVideoRenderer(
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
         if (videoW > 0 && videoH > 0 && viewportW > 0 && viewportH > 0) {
-            val scale = minOf(
-                viewportW.toFloat() / videoW,
-                viewportH.toFloat() / videoH
-            )
-            val scaleX = videoW * scale / viewportW
-            val scaleY = videoH * scale / viewportH
+            val zoom = if (tiltEnabled) 1f + 0.10f * (tiltPercent / 100f) else 1f
+            val baseScale = viewportW.toFloat() / videoW
+            val scaleX = videoW * baseScale / viewportW * zoom
+            val scaleY = videoH * baseScale / viewportH * zoom
+
+            val slackX = scaleX - 1f
+            val slackY = if (scaleY >= 1f) {
+                scaleY - 1f
+            } else {
+                minOf(0.08f, (1f - scaleY) * 0.5f)
+            }
+            val offX = if (tiltEnabled) tiltX.coerceIn(-1f, 1f) * slackX else 0f
+            val offY = if (tiltEnabled) tiltY.coerceIn(-1f, 1f) * slackY else 0f
 
             GLES20.glUseProgram(program)
             GLES20.glUniform2f(scaleHandle, scaleX, scaleY)
+            GLES20.glUniform2f(offsetHandle, offX, offY)
             GLES20.glUniformMatrix4fv(stMatrixHandle, 1, false, stMatrix, 0)
 
             GLES20.glEnableVertexAttribArray(positionHandle)

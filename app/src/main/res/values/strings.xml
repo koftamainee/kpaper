@@ -7,4 +7,6 @@
     <string name="status_none">Видео не выбрано</string>
     <string name="status_selected">Выбрано: %1$s</string>
     <string name="cant_open_chooser">Не удалось открыть выбор обоев, установите kpaper вручную в настройках</string>
+    <string name="parallax_label">Параллакс при наклоне</string>
+    <string name="tilt_value_fmt">Сила наклона: %1$d%%</string>
 </resources>

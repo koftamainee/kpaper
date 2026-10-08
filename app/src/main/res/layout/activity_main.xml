@@ -22,4 +22,25 @@
         android:layout_height="wrap_content"
         android:text="@string/pick_video" />
 
+    <CheckBox
+        android:id="@+id/parallax"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="@string/parallax_label" />
+
+    <TextView
+        android:id="@+id/tilt_value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textSize="14sp" />
+
+    <SeekBar
+        android:id="@+id/tilt"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:max="200" />
+
 </LinearLayout>
