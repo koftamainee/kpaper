@@ -1,8 +1,6 @@
 package com.koftamainee.kpaper
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
@@ -14,7 +12,6 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
-import android.opengl.GLUtils
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
@@ -23,26 +20,24 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.CountDownLatch
 
-data class Frame0(val uri: Uri, val bitmap: Bitmap)
-
-class Frame0Cache {
-    @Volatile
-    var value: Frame0? = null
-}
-
 class GLVideoRenderer(
     private val context: Context,
     private val holder: SurfaceHolder,
     private val uri: Uri,
     @Volatile private var viewportW: Int,
     @Volatile private var viewportH: Int,
-    private val cache: Frame0Cache,
 ) : Thread("kpaper-gl") {
 
     private val readyLatch = CountDownLatch(1)
 
     @Volatile
     private var stopRequested = false
+
+    @Volatile
+    private var shouldPlay = false
+
+    @Volatile
+    private var prepared = false
 
     @Volatile
     private var handler: Handler? = null
@@ -55,17 +50,21 @@ class GLVideoRenderer(
     private var positionHandle = 0
     private var texCoordHandle = 0
     private var scaleHandle = 0
+    private var offsetHandle = 0
     private var stMatrixHandle = 0
     private var textureId = 0
 
-    private var previewProgram = 0
-    private var previewPositionHandle = 0
-    private var previewTexCoordHandle = 0
-    private var previewScaleHandle = 0
-    private var previewStMatrixHandle = 0
-    private var previewTexture = 0
-    private var previewW = 0
-    private var previewH = 0
+    @Volatile
+    private var tiltEnabled = false
+
+    @Volatile
+    private var tiltPercent = 100
+
+    @Volatile
+    private var tiltX = 0f
+
+    @Volatile
+    private var tiltY = 0f
 
     private var surfaceTexture: SurfaceTexture? = null
     private var videoSurface: Surface? = null
@@ -76,24 +75,12 @@ class GLVideoRenderer(
     private var hasFrame = false
     private val stMatrix = FloatArray(16)
 
-    private val identityMatrix = floatArrayOf(
-        1f, 0f, 0f, 0f,
-        0f, 1f, 0f, 0f,
-        0f, 0f, 1f, 0f,
-        0f, 0f, 0f, 1f
-    )
-
     private val positionBuffer = ByteBuffer
         .allocateDirect(4 * 2 * 4)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
 
     private val texCoordBuffer = ByteBuffer
-        .allocateDirect(4 * 2 * 4)
-        .order(ByteOrder.nativeOrder())
-        .asFloatBuffer()
-
-    private val previewTexCoordBuffer = ByteBuffer
         .allocateDirect(4 * 2 * 4)
         .order(ByteOrder.nativeOrder())
         .asFloatBuffer()
@@ -107,8 +94,7 @@ class GLVideoRenderer(
             if (stopRequested) return
             if (!initEgl()) return
             initGl()
-            loadVideoInfo()
-            uploadPreview()
+            readVideoSize()
             if (stopRequested) return
 
             val st = SurfaceTexture(textureId)
@@ -129,7 +115,13 @@ class GLVideoRenderer(
                         videoW = mp.videoWidth
                         videoH = mp.videoHeight
                     }
-                    mp.start()
+                    prepared = true
+                    if (shouldPlay) {
+                        try {
+                            mp.start()
+                        } catch (_: Exception) {
+                        }
+                    }
                 }
                 setOnErrorListener { mp, _, _ ->
                     handler?.post {
@@ -137,7 +129,10 @@ class GLVideoRenderer(
                             mp.release()
                         } catch (_: Exception) {
                         }
-                        if (player === mp) player = null
+                        if (player === mp) {
+                            player = null
+                            prepared = false
+                        }
                     }
                     true
                 }
@@ -151,6 +146,9 @@ class GLVideoRenderer(
                 }
                 return
             }
+            if (shouldPlay) {
+                handler?.post { applyVisibility() }
+            }
 
             Looper.loop()
         } catch (_: Throwable) {
@@ -158,6 +156,11 @@ class GLVideoRenderer(
             readyLatch.countDown()
             releaseAll()
         }
+    }
+
+    fun setVisible(visible: Boolean) {
+        shouldPlay = visible
+        handler?.post { applyVisibility() }
     }
 
     fun setViewport(w: Int, h: Int) {
@@ -176,7 +179,7 @@ class GLVideoRenderer(
                 surfaceTexture?.setOnFrameAvailableListener(null)
             } catch (_: Exception) {
             }
-            drawHideFrame()
+            drawBlack()
             Looper.myLooper()?.quit()
         }
         var elapsed = 0L
@@ -186,14 +189,28 @@ class GLVideoRenderer(
         }
     }
 
-    private fun loadVideoInfo() {
+    private fun applyVisibility() {
+        val p = player ?: return
+        if (stopRequested || !prepared) return
+        try {
+            if (shouldPlay) {
+                if (!p.isPlaying) p.start()
+            } else if (p.isPlaying) {
+                p.pause()
+                p.seekTo(0)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun readVideoSize() {
         val mmr = MediaMetadataRetriever()
         try {
             mmr.setDataSource(context, uri)
-            val w = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
-            val h = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+            val w = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            val h = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
             val rot = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-            if (w > 0 && h > 0) {
+            if (w != null && h != null && w > 0 && h > 0) {
                 if (rot % 180 == 90) {
                     videoW = h
                     videoH = w
@@ -202,73 +219,12 @@ class GLVideoRenderer(
                     videoH = h
                 }
             }
-            if (cache.value?.uri != uri) {
-                extractFrame0(mmr, w, h, rot)
-            }
         } catch (_: Exception) {
         } finally {
             try {
                 mmr.release()
             } catch (_: Exception) {
             }
-        }
-    }
-
-    private fun extractFrame0(mmr: MediaMetadataRetriever, w: Int, h: Int, rot: Int) {
-        var bmp: Bitmap? = null
-        try {
-            bmp = mmr.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
-        } catch (_: Exception) {
-        }
-        if (bmp == null) return
-        try {
-            if (rot % 180 == 90 && w > 0 && h > 0 && bmp.width == w && bmp.height == h) {
-                val m = Matrix()
-                m.postRotate(rot.toFloat())
-                val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-                if (rotated != bmp) {
-                    bmp.recycle()
-                    bmp = rotated
-                }
-            }
-            val maxSide = maxOf(bmp.width, bmp.height)
-            if (maxSide > 1920) {
-                val f = 1920f / maxSide
-                val scaled = Bitmap.createScaledBitmap(
-                    bmp,
-                    (bmp.width * f).toInt().coerceAtLeast(1),
-                    (bmp.height * f).toInt().coerceAtLeast(1),
-                    true
-                )
-                if (scaled != bmp) {
-                    bmp.recycle()
-                    bmp = scaled
-                }
-            }
-            cache.value = Frame0(uri, bmp)
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun uploadPreview() {
-        val c = cache.value ?: return
-        if (c.uri != uri || c.bitmap.isRecycled) return
-        try {
-            previewW = c.bitmap.width
-            previewH = c.bitmap.height
-            val textures = IntArray(1)
-            GLES20.glGenTextures(1, textures, 0)
-            previewTexture = textures[0]
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, previewTexture)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, c.bitmap, 0)
-        } catch (_: Exception) {
-            previewTexture = 0
-            previewW = 0
-            previewH = 0
         }
     }
 
@@ -322,12 +278,6 @@ class GLVideoRenderer(
         scaleHandle = GLES20.glGetUniformLocation(program, "uScale")
         stMatrixHandle = GLES20.glGetUniformLocation(program, "uSTMatrix")
 
-        previewProgram = createProgram(VERTEX_SHADER, PREVIEW_FRAGMENT_SHADER)
-        previewPositionHandle = GLES20.glGetAttribLocation(previewProgram, "aPosition")
-        previewTexCoordHandle = GLES20.glGetAttribLocation(previewProgram, "aTexCoord")
-        previewScaleHandle = GLES20.glGetUniformLocation(previewProgram, "uScale")
-        previewStMatrixHandle = GLES20.glGetUniformLocation(previewProgram, "uSTMatrix")
-
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
         textureId = textures[0]
@@ -355,15 +305,6 @@ class GLVideoRenderer(
             )
         )
         texCoordBuffer.position(0)
-        previewTexCoordBuffer.put(
-            floatArrayOf(
-                0f, 1f,
-                1f, 1f,
-                0f, 0f,
-                1f, 0f
-            )
-        )
-        previewTexCoordBuffer.position(0)
     }
 
     private fun drawFrame() {
@@ -414,43 +355,16 @@ class GLVideoRenderer(
         }
     }
 
-    private fun drawHideFrame() {
+    private fun drawBlack() {
         try {
             val display = eglDisplay ?: return
             val eglSurf = eglSurface ?: return
             val surface = holder.surface
             if (surface == null || !surface.isValid) return
             if (!EGL14.eglMakeCurrent(display, eglSurf, eglSurf, eglContext)) return
-
             GLES20.glViewport(0, 0, viewportW, viewportH)
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-
-            if (previewTexture != 0 && previewW > 0 && previewH > 0 && viewportW > 0 && viewportH > 0) {
-                val scale = minOf(
-                    viewportW.toFloat() / previewW,
-                    viewportH.toFloat() / previewH
-                )
-                val scaleX = previewW * scale / viewportW
-                val scaleY = previewH * scale / viewportH
-
-                GLES20.glUseProgram(previewProgram)
-                GLES20.glUniform2f(previewScaleHandle, scaleX, scaleY)
-                GLES20.glUniformMatrix4fv(previewStMatrixHandle, 1, false, identityMatrix, 0)
-
-                GLES20.glEnableVertexAttribArray(previewPositionHandle)
-                GLES20.glVertexAttribPointer(previewPositionHandle, 2, GLES20.GL_FLOAT, false, 0, positionBuffer)
-                GLES20.glEnableVertexAttribArray(previewTexCoordHandle)
-                GLES20.glVertexAttribPointer(previewTexCoordHandle, 2, GLES20.GL_FLOAT, false, 0, previewTexCoordBuffer)
-                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, previewTexture)
-
-                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-
-                GLES20.glDisableVertexAttribArray(previewPositionHandle)
-                GLES20.glDisableVertexAttribArray(previewTexCoordHandle)
-            }
-
             EGL14.eglSwapBuffers(display, eglSurf)
         } catch (_: Exception) {
         }
@@ -510,10 +424,11 @@ class GLVideoRenderer(
             attribute vec4 aPosition;
             attribute vec2 aTexCoord;
             uniform vec2 uScale;
+            uniform vec2 uOffset;
             uniform mat4 uSTMatrix;
             varying vec2 vTexCoord;
             void main() {
-                gl_Position = vec4(aPosition.xy * uScale, 0.0, 1.0);
+                gl_Position = vec4(aPosition.xy * uScale + uOffset, 0.0, 1.0);
                 vTexCoord = (uSTMatrix * vec4(aTexCoord, 0.0, 1.0)).xy;
             }
         """
@@ -523,15 +438,6 @@ class GLVideoRenderer(
             precision mediump float;
             varying vec2 vTexCoord;
             uniform samplerExternalOES sTexture;
-            void main() {
-                gl_FragColor = texture2D(sTexture, vTexCoord);
-            }
-        """
-
-        private const val PREVIEW_FRAGMENT_SHADER = """
-            precision mediump float;
-            varying vec2 vTexCoord;
-            uniform sampler2D sTexture;
             void main() {
                 gl_FragColor = texture2D(sTexture, vTexCoord);
             }

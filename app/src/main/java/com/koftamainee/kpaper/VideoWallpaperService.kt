@@ -19,7 +19,6 @@ class VideoWallpaperService : WallpaperService() {
 
         private var renderer: GLVideoRenderer? = null
         private var rendererUri: Uri? = null
-        private val frame0Cache = Frame0Cache()
 
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
@@ -65,7 +64,7 @@ class VideoWallpaperService : WallpaperService() {
         private fun updateState() {
             val uri = readVideoUri()
             val shouldRun =
-                visible && surfaceReady && viewportW > 0 && viewportH > 0 && uri != null
+                surfaceReady && viewportW > 0 && viewportH > 0 && uri != null
 
             if (!shouldRun) {
                 stopRenderer()
@@ -82,10 +81,10 @@ class VideoWallpaperService : WallpaperService() {
                     surfaceHolder,
                     uri,
                     viewportW,
-                    viewportH,
-                    frame0Cache
+                    viewportH
                 ).also { it.start() }
             }
+            renderer?.setVisible(visible)
         }
 
         private fun stopRenderer() {
