@@ -13,4 +13,8 @@ I don't recreate gl's context, just pause and resume, this is remove first frame
 bug, but can use slightly more energy in the background.
 
 also, here is the miku
-[[./assets/wp.jpg]]
+#+BEGIN_HTML
+<div style="display: flex; gap: 10px; flex-wrap: wrap;">
+  <img src="./assets/wp.jpg" width="250" alt="mikumikumikumikumikumikumikumikumikumikumikumikumikumiku">
+</div>
+#+END_HTML
