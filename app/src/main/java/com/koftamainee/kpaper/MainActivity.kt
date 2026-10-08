@@ -19,6 +19,9 @@ class MainActivity : Activity() {
     private lateinit var parallax: CheckBox
     private lateinit var tiltBar: SeekBar
     private lateinit var tiltValue: TextView
+    private lateinit var restartBar: SeekBar
+    private lateinit var restartValue: TextView
+    private lateinit var restartLockOnly: CheckBox
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,6 +30,9 @@ class MainActivity : Activity() {
         parallax = findViewById(R.id.parallax)
         tiltBar = findViewById(R.id.tilt)
         tiltValue = findViewById(R.id.tilt_value)
+        restartBar = findViewById(R.id.restart)
+        restartValue = findViewById(R.id.restart_value)
+        restartLockOnly = findViewById(R.id.restart_lock_only)
         findViewById<Button>(R.id.pick).setOnClickListener { pickVideo() }
 
         parallax.isChecked = prefs().getBoolean("parallax", true)
@@ -34,6 +40,30 @@ class MainActivity : Activity() {
         tiltBar.isEnabled = parallax.isChecked
         tiltValue.isEnabled = parallax.isChecked
         updateTiltLabel()
+
+        restartBar.progress = prefs().getInt("restart_after", 5).coerceIn(0, 30)
+        updateRestartLabel()
+        restartBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                prefs().edit().putInt("restart_after", progress).apply()
+                updateRestartLabel()
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+            }
+        })
+
+        restartLockOnly.isChecked = prefs().getBoolean("restart_lock_only", false)
+        restartBar.isEnabled = !restartLockOnly.isChecked
+        restartValue.isEnabled = !restartLockOnly.isChecked
+        restartLockOnly.setOnCheckedChangeListener { _, checked ->
+            prefs().edit().putBoolean("restart_lock_only", checked).apply()
+            restartBar.isEnabled = !checked
+            restartValue.isEnabled = !checked
+        }
 
         parallax.setOnCheckedChangeListener { _, checked ->
             prefs().edit().putBoolean("parallax", checked).apply()
@@ -56,6 +86,10 @@ class MainActivity : Activity() {
 
     private fun updateTiltLabel() {
         tiltValue.text = getString(R.string.tilt_value_fmt, tiltBar.progress)
+    }
+
+    private fun updateRestartLabel() {
+        restartValue.text = getString(R.string.restart_fmt, restartBar.progress)
     }
 
     override fun onResume() {

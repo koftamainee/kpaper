@@ -9,4 +9,6 @@
     <string name="cant_open_chooser">Не удалось открыть выбор обоев, установите kpaper вручную в настройках</string>
     <string name="parallax_label">Параллакс при наклоне</string>
     <string name="tilt_value_fmt">Сила наклона: %1$d%%</string>
+    <string name="restart_fmt">Перезапуск если скрыт дольше: %1$d с</string>
+    <string name="restart_lock_only_label">Перезапуск только после блокировки</string>
 </resources>

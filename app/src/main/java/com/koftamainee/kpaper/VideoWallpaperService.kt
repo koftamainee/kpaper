@@ -2,12 +2,18 @@ package com.koftamainee.kpaper
 
 import android.service.wallpaper.WallpaperService
 import android.service.wallpaper.WallpaperService.Engine
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.PixelFormat
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.net.Uri
+import android.os.Build
+import android.os.SystemClock
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.WindowManager
@@ -36,14 +42,48 @@ class VideoWallpaperService : WallpaperService() {
         private var lpX = 0f
         private var lpY = 0f
 
+        private var hiddenAt = 0L
+        private var restartOnShow = false
+        private var restartThresholdMs = 5000L
+        private var lockOnly = false
+
+        private val screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> renderer?.pauseAndSeekNow()
+                    Intent.ACTION_SCREEN_ON -> if (visible) renderer?.setVisible(true)
+                }
+            }
+        }
+
         override fun onCreate(holder: SurfaceHolder) {
             super.onCreate(holder)
             holder.setFormat(PixelFormat.OPAQUE)
             sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenReceiver, filter)
+            }
         }
 
         override fun onVisibilityChanged(isVisible: Boolean) {
             super.onVisibilityChanged(isVisible)
+            if (visible && !isVisible) {
+                hiddenAt = SystemClock.elapsedRealtime()
+            } else if (!visible && isVisible && hiddenAt != 0L) {
+                val sp = getSharedPreferences("kpaper", MODE_PRIVATE)
+                val lockOnly = sp.getBoolean("restart_lock_only", false)
+                val threshold = sp.getInt("restart_after", 5).coerceIn(0, 30) * 1000L
+                if (!lockOnly && SystemClock.elapsedRealtime() - hiddenAt >= threshold) {
+                    restartOnShow = true
+                }
+                hiddenAt = 0L
+            }
             visible = isVisible
             updateState()
         }
@@ -74,6 +114,7 @@ class VideoWallpaperService : WallpaperService() {
         }
 
         override fun onDestroy() {
+            unregisterReceiver(screenReceiver)
             stopRenderer()
             super.onDestroy()
         }
@@ -82,6 +123,8 @@ class VideoWallpaperService : WallpaperService() {
             val sp = getSharedPreferences("kpaper", MODE_PRIVATE)
             parallaxEnabled = sp.getBoolean("parallax", true)
             tiltPercent = sp.getInt("tilt_percent", 100).coerceIn(0, 200)
+            restartThresholdMs = sp.getInt("restart_after", 5).coerceIn(0, 30) * 1000L
+            lockOnly = sp.getBoolean("restart_lock_only", false)
             displayRotation = (getSystemService(WINDOW_SERVICE) as WindowManager)
                 .defaultDisplay.rotation
             val uri: Uri? = sp.getString("uri", null)?.let { Uri.parse(it) }
@@ -108,7 +151,10 @@ class VideoWallpaperService : WallpaperService() {
                 ).also { it.start() }
             }
             renderer?.setTiltConfig(parallaxEnabled, tiltPercent)
-            renderer?.setVisible(visible)
+            renderer?.setRestartThreshold(if (lockOnly) -1L else restartThresholdMs)
+            val restart = restartOnShow
+            restartOnShow = false
+            renderer?.setVisible(visible, restart)
             updateSensor()
         }
 

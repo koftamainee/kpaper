@@ -67,6 +67,19 @@ class GLVideoRenderer(
     @Volatile
     private var tiltY = 0f
 
+    @Volatile
+    private var restartThresholdMs = 5000L
+
+    private val delayedRestart = Runnable {
+        if (shouldPlay || stopRequested) return@Runnable
+        val p = player ?: return@Runnable
+        if (!prepared) return@Runnable
+        try {
+            p.seekTo(0)
+        } catch (_: Exception) {
+        }
+    }
+
     private var surfaceTexture: SurfaceTexture? = null
     private var videoSurface: Surface? = null
     private var player: MediaPlayer? = null
@@ -148,7 +161,7 @@ class GLVideoRenderer(
                 return
             }
             if (shouldPlay) {
-                handler?.post { applyVisibility() }
+                handler?.post { applyVisibility(false) }
             }
 
             Looper.loop()
@@ -159,9 +172,26 @@ class GLVideoRenderer(
         }
     }
 
-    fun setVisible(visible: Boolean) {
+    fun setVisible(visible: Boolean, restart: Boolean = false) {
         shouldPlay = visible
-        handler?.post { applyVisibility() }
+        handler?.post { applyVisibility(restart) }
+    }
+
+    fun setRestartThreshold(ms: Long) {
+        restartThresholdMs = ms
+    }
+
+    fun pauseAndSeekNow() {
+        handler?.post {
+            handler?.removeCallbacks(delayedRestart)
+            val p = player ?: return@post
+            if (!prepared || stopRequested) return@post
+            try {
+                if (p.isPlaying) p.pause()
+                p.seekTo(0)
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun setTiltConfig(enabled: Boolean, percent: Int) {
@@ -210,15 +240,20 @@ class GLVideoRenderer(
         }
     }
 
-    private fun applyVisibility() {
+    private fun applyVisibility(restart: Boolean) {
         val p = player ?: return
         if (stopRequested || !prepared) return
         try {
             if (shouldPlay) {
+                handler?.removeCallbacks(delayedRestart)
+                if (restart) p.seekTo(0)
                 if (!p.isPlaying) p.start()
-            } else if (p.isPlaying) {
-                p.pause()
-                p.seekTo(0)
+            } else {
+                handler?.removeCallbacks(delayedRestart)
+                if (p.isPlaying) p.pause()
+                if (restartThresholdMs >= 0) {
+                    handler?.postDelayed(delayedRestart, restartThresholdMs)
+                }
             }
         } catch (_: Exception) {
         }

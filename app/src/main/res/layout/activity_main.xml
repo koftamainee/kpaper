@@ -43,4 +43,25 @@
         android:layout_marginTop="4dp"
         android:max="200" />
 
+    <CheckBox
+        android:id="@+id/restart_lock_only"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/restart_lock_only_label" />
+
+    <TextView
+        android:id="@+id/restart_value"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textSize="14sp" />
+
+    <SeekBar
+        android:id="@+id/restart"
+        android:layout_width="260dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:max="30" />
+
 </LinearLayout>
